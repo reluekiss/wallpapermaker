@@ -1,0 +1,59 @@
+#!/bin/bash
+
+function gifmaker {
+    dir=$(mktemp -d) 
+    
+    name=$1
+    
+    [ ! -f "$name" ] && { echo "file not found" ; exit 1 ; }
+    hash=`md5sum $name | cut -f1 -d" "`
+    
+    [[ ! -d $dir ]] && mkdir $dir 
+    
+    [[ ! -d $dir/$hash ]] && { 
+        mkdir $dir/$hash
+        echo "spliting gif..."
+        convert -coalesce $name $dir/$hash/$hash.png 2>1
+        echo ok
+    }
+    
+    frames=($(ls -v "$dir/$hash"))
+    amount_of_frames=${#frames[@]}
+    framerate=$(ffprobe -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of csv=p=0 "$1" | bc -l)
+    speed=$(bc <<< "scale=3; ($amount_of_frames/$framerate) * (1/$framerate)")
+    
+    while : ; do for i in ` ls $dir/$hash -v ` ; do $prog$dir/$hash/$i ; sleep $speed ; done ; done    
+}
+
+SCRIPT_PID=$$
+OTHER_PIDS=$(pgrep wallpapermaker | grep -v "$SCRIPT_PID")
+for pid in $OTHER_PIDS; do
+    kill -9 $pid 2>/dev/null
+    echo "Killed PID $pid"
+done
+
+monitors=$(xrandr --listmonitors|awk '/^Monitors:/ {print $2}')
+extension=$(echo "$1" | awk -F . '{print $NF}' | sed 's/\?.*//')
+
+arg=""
+if [[ $monitors > 1 ]]; then
+    arg="--xinerama-index=0"
+elif [[ "$1" == *"tile"* && "${extension}" == "gif" ]]; then
+    prog='feh --bg-tile --no-fehbg '
+	gifmaker "$1" &
+elif [[ "$1" == *"tile"* ]]; then
+	feh --bg-tile $arg "$1"
+else
+	case "${extension}" in
+		jpg|jpeg|png|bmp|webp)
+            feh --bg-fill $arg 0 "$1"         
+            ;;
+		gif)
+            prog='feh --bg-fill --no-fehbg '
+			gifmaker "$1" &
+			;;
+		*)
+		echo "bad file type";
+		;;
+	esac
+fi
